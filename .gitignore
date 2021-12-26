@@ -29,3 +29,7 @@ repos/kaleido/py/dist/
 repos/kaleido/py/scratch/
 .idea/
 repos/CREDITS.html
+.Rproj.user
+.RData
+.Rhistory
+*.Rproj
