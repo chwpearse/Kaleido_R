@@ -7,26 +7,24 @@
 # from io import open
 # import hashlib
 
-here = os$path$dirname(os$path$abspath(file__))
-parent = os$path$dirname(here)
-executable_build_dir = os$path$abspath(os$path$join(here, '..', '..', 'build'))
-is_repo = all(
-     for (fn in c("version", "README.md", "LICENSE.txt")){
-         os$path$exists(os$path$join(parent, fn))
-     }
-)
+here <- getwd() %>% paste0('/repos')
+parent <- dirname(here)
+executable_build_dir = here %>% paste0('/../../build')
+
+is_repo = all(file.exists(
+    paste0(parent, "/", c("version", "README.md", "LICENSE.txt"))))
 
 if (is_repo){
     print("Running setup.py from the kaleido repository tree")
     # with open(os$path$join(os$path$dirname(here), 'version'), 'r') as f:
-        version = f.read()
+    version = f.read()
     # with open(os$path$join(here, "..", "README.md"), encoding="utf8") as f:
-        long_description = f.read()
+    long_description = f.read()
 }else{
     print("Running setup.py during source installation")
     # Follow this path on source package installation
-    # with open(os$path$join(here, 'kaleido', '_version.py'), 'r') as f:
-        version_py = f.read()
+    f = open(paste0(here, '/kaleido/_version.py'), 'r') 
+    version_py = f %>% read()
     version = eval(version_py.strip() %>% split("=")[1])
     long_description = None
 }
@@ -141,92 +139,92 @@ CopyLicenseAndReadme <- R6Class(# Command):
 PackageSourceDistribution <- R6Class( #Command):
     'PackageSourceDistribution',
     public = list(
-    description = "Build source distribution package",
-    user_options = list(),
-
-    initialize_options = pass,
-    finalize_options = pass,
-
-    run = function(){
-        self.run_command("clean")
-        self.run_command("write_version")
-        self.run_command("copy_license")
-
-        # Remove executable files
-        del (executable_files)
-
-        self.run_command("sdist")
-}))
+        description = "Build source distribution package",
+        user_options = list(),
+        
+        initialize_options = pass,
+        finalize_options = pass,
+        
+        run = function(){
+            self.run_command("clean")
+            self.run_command("write_version")
+            self.run_command("copy_license")
+            
+            # Remove executable files
+            del (executable_files)
+            
+            self.run_command("sdist")
+        }))
 
 PackageWheel <- R6Class( #Command):
     "PackageWheel",
     public(
-    description = "Build Wheel Package",
-    user_options = list(),
-
-    initialize_options = pass,
-    finalize_options = pass,
-
-    run = function(){
-        self.run_command("clean")
-        self.run_command("copy_executable")
-        self.run_command("write_version")
-        self.run_command("copy_license")
-        cmd_obj = self.distribution.get_command_obj('bdist_wheel')
+        description = "Build Wheel Package",
+        user_options = list(),
         
-        # Use current platform as plat_name, but replace linux with manylinux2014
-        cmd_obj.plat_name = distutils.util.get_platform()
+        initialize_options = pass,
+        finalize_options = pass,
         
-        # Handle windows 32-bit cross compilation
-        print(os.environ.get("KALEIDO_ARCH", "x64"))
-        if (cmd_obj.plat_name.startswith("win-")){
-            arch = os.environ.get("KALEIDO_ARCH", "x64")
-            if (arch == "x86"){
-                cmd_obj.plat_name = "win32"
-            }else{
-                if( arch == "x64"){
-                    cmd_obj.plat_name = "win_amd64"
+        run = function(){
+            self.run_command("clean")
+            self.run_command("copy_executable")
+            self.run_command("write_version")
+            self.run_command("copy_license")
+            cmd_obj = self.distribution.get_command_obj('bdist_wheel')
+            
+            # Use current platform as plat_name, but replace linux with manylinux2014
+            cmd_obj.plat_name = distutils.util.get_platform()
+            
+            # Handle windows 32-bit cross compilation
+            print(os.environ.get("KALEIDO_ARCH", "x64"))
+            if (cmd_obj.plat_name.startswith("win-")){
+                arch = os.environ.get("KALEIDO_ARCH", "x64")
+                if (arch == "x86"){
+                    cmd_obj.plat_name = "win32"
                 }else{
-                    raise(
-                        ValueError(
-                            "Unsupported architecture {arch} for plat_name {plat_name}" %>% 
-                                format(arch=arch, plat_name=cmd_obj.plat_name)))
-                }
-            }else{
-                if(cmd_obj.plat_name.startswith("linux")){
-                    arch = os.environ.get("KALEIDO_ARCH", "x64")
-                    if (arch == "x64"){
-                        cmd_obj.plat_name = "manylinux1-x86_64"
+                    if( arch == "x64"){
+                        cmd_obj.plat_name = "win_amd64"
                     }else{
-                        if(arch == "x86"){
-                            cmd_obj.plat_name = "manylinux1-i686"
+                        raise(
+                            ValueError(
+                                "Unsupported architecture {arch} for plat_name {plat_name}" %>% 
+                                    format(arch=arch, plat_name=cmd_obj.plat_name)))
+                    }
+                }else{
+                    if(cmd_obj.plat_name.startswith("linux")){
+                        arch = os.environ.get("KALEIDO_ARCH", "x64")
+                        if (arch == "x64"){
+                            cmd_obj.plat_name = "manylinux1-x86_64"
                         }else{
-                            if( arch == "arm64"){
-                                cmd_obj.plat_name = "manylinux2014-aarch64"
-                            }else{if( arch == "arm"){
-                                cmd_obj.plat_name = "manylinux2014-armv7l"
-                            }
+                            if(arch == "x86"){
+                                cmd_obj.plat_name = "manylinux1-i686"
+                            }else{
+                                if( arch == "arm64"){
+                                    cmd_obj.plat_name = "manylinux2014-aarch64"
+                                }else{if( arch == "arm"){
+                                    cmd_obj.plat_name = "manylinux2014-armv7l"
+                                }
+                                }
                             }
                         }
                     }
                 }
-            }
-        }else{
-            # Set macos platform to 10.11 rather than Python environment
-            if (cmd_obj.plat_name.startswith("macosx")){
-                arch = os.environ.get("KALEIDO_ARCH", "x64")
-                if (arch == "x64"){
-                    cmd_obj.plat_name = "macosx-10.11-x86_64"
-                }else{
-                    if(arch == "arm64"){
-                        cmd_obj.plat_name = "macosx-11.0-arm64"
+            }else{
+                # Set macos platform to 10.11 rather than Python environment
+                if (cmd_obj.plat_name.startswith("macosx")){
+                    arch = os.environ.get("KALEIDO_ARCH", "x64")
+                    if (arch == "x64"){
+                        cmd_obj.plat_name = "macosx-10.11-x86_64"
+                    }else{
+                        if(arch == "arm64"){
+                            cmd_obj.plat_name = "macosx-11.0-arm64"
+                        }
                     }
                 }
             }
-        }
-        cmd_obj.python_tag = 'py2.py3'
-        self$run_command("bdist_wheel")
-}))
+            cmd_obj.python_tag = 'py2.py3'
+            self$run_command("bdist_wheel")
+        }))
 
 HashBundleArtifacts <- R6Class( #Command):
     "HashBundleArtifacts",

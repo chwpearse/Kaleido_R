@@ -2,6 +2,7 @@ library(rjson)
 library(R6)
 library(tidyverse)
 library(processx)
+library(plotly)
 # import subprocess
 # import json
 # from threading import Lock, Thread
@@ -25,19 +26,17 @@ BaseScope <- R6Class(
         scope_flags = c(),
         
         # Specify default chromium arguments
-        default_chromium_args = c(
-            "--disable-gpu",
-            "--allow-file-access-from-files",
-            "--disable-breakpad",
-            "--disable-dev-shm-usage",
-            # Add "--single-process" when running on AWS Lambda. Flag is described
-            # as for debugging only by the chromium project, but it's the only way to get
-            # chromium headless working on Lambda
-            ifelse(Sys.info()['sysname'] == "LAMBDA_RUNTIME_DIR", c("--single-process"), c(""))
-        ),
+        default_chromium_args = c("--disable-gpu",
+                                  "--allow-file-access-from-files",
+                                  "--disable-breakpad",
+                                  "--disable-dev-shm-usage") %>%
+            append(if(Sys.info()[['sysname']] == "LAMBDA_RUNTIME_DIR"){c('word', 'b')}else{c()})
+        # Add "--single-process" when running on AWS Lambda. Flag is described
+        # as for debugging only by the chromium project, but it's the only way to get
+        # chromium headless working on Lambda
+        ,
         
         scope_chromium_args = c(),
-        
         
         get_default_chromium_args = function(cls){
             # """
@@ -48,54 +47,54 @@ BaseScope <- R6Class(
             # 
             # :return: tuple of str
             # """
-            return (append(cls._default_chromium_args , cls._scope_chromium_args))
+            return (c(cls$default_chromium_args , cls$scope_chromium_args))
         },
-        initialize = function(
-            disable_gpu = T,
-            chromium_args = T,
-            ...
-        ){
-            browser()
-            if (chromium_args){
+        initialize = function(disable_gpu = T, chromium_args = T, ...){
+            # browser()
+            if (all(chromium_args == T)){
                 chromium_args = self$default_chromium_args
             }else{ 
-                if(!chromium_args)
+                if(all(chromium_args == F)){
                     chromium_args = c()
+                }
             }
             # Handle backward compatibility for disable_gpu flag
             if (!disable_gpu){
                 # If disable_gpu is set to False, then remove corresponding flag from extra_chromium_args
                 chromium_args = chromium_args[chromium_args != "--disable-gpu"]
             }
-            self$chromium_args = list(chromium_args)
+            self$chromium_args = chromium_args #list(chromium_args)
             
             # Internal Properties
-            self$std_error = NULL #io.BytesIO()
+            # self$std_error = NULL #io.BytesIO()
             self$std_error_thread = NULL
             self$proc = NULL
-            self$proc_lock = Lock()
+            # self$proc_lock = Lock()
+            
         },
-        del__ = function(){
-            self$shutdown_kaleido()
-        },
+        # std_error = NULL,
+        std_error_thread = NULL,
+        proc = NULL,
+        proc_lock = NULL,
         
         executable_path = function(cls){
-            vendored_executable_path = os$path$join(
-                os$path$dirname(
-                    os$path$dirname(
-                        os$path$abspath(getwd())
-                    )
-                ),
-                'executable',
+            vendored_executable_path = file.path(
+                # dirname(dirname(path.expand(getwd()))),
+                # 'executable',
+                # 'kaleido'
+                dirname(dirname(path.expand(getwd()))),
+                'Kaleido',
+                'Kaleido R',
+                'kaleido_win_x64',
                 'kaleido'
-            )
+            ) 
             
             # Add .cmd extension on Windows. The which function below doesn't need this, but os$path$exists requires
             # the file extension
-            if (platform.system() == "Windows"){
-                vendored_executable_path =  paste(vendored_executable_path, ".cmd")
+            if (.Platform$OS.type == "windows"){
+                vendored_executable_path =  paste0(vendored_executable_path, ".cmd")
             }
-            if (os$path$exists(vendored_executable_path)){
+            if (file.exists(vendored_executable_path)){
                 # The kaleido executable is vendored under kaleido/executable.
                 # It was probably install as a PyPI wheel
                 executable_path = vendored_executable_path
@@ -103,23 +102,21 @@ BaseScope <- R6Class(
                 # The kaleido executable is not vendored under kaleido/executable,
                 # Probably installed using conda, where the executable is a separate package
                 # and is placed on the system PATH
-                executable_path = which("kaleido")
-                if (is.null(executable_path)){
+                executable_path = Sys.which("kaleido")
+                if (executable_path == ""){
                     path = Sys.getenv()['PATH']
-                    formatted_path = path$replace(os$pathsep, "\n    ")
-                    raiseValueError(
+                    formatted_path = gsub( ";", "\n    ", path)
+                    stop(
+                        paste(
                         "
 The kaleido executable is required by the kaleido Python library, but it was not included
 in the Python package and it could not be found on the system path$
 
 Searched for included kaleido executable at:
-    {vendored_executable_path} 
+    ", vendored_executable_path, " 
 
 Searched for executable 'kaleido' on the following system PATH:
-    {formatted_path}\n" %>% format(
-        vendored_executable_path=vendored_executable_path,
-        formatted_path=formatted_path,
-    )
+    ", formatted_path,"\n")
                     )
                 }
             }
@@ -132,24 +129,25 @@ Searched for executable 'kaleido' on the following system PATH:
         # 
         # :return: list of flags
         # """
-        proc_args = list(self$executable_path(), self$scope_name)
+        # browser()
+        proc_args = c(self$executable_path(), self$scope_name())
         for (k in self$scope_flags){
-            v = getattr(self, k)
-            if (v) {
-                flag = '--' + k.replace("_", "-")
+            v = self[[k]]()
+            if(isTRUE(v)) {
+                flag = paste0('--', gsub("_", "-", k))
             }else{
-                if(!v | is.null(v) ){
+                if(isFALSE(v) | is.null(v) | anyNA(v)){
                     # Logical flag set to False, don't include flag or argument
-                    continue
+                    next
                 }else{
                     # Flag with associated value
-                    flag = '--' + k.replace("_", "-") + "=" + repr(str(v))
+                    flag = paste0('--', gsub("_", "-", k), "=", as.character(v))
                 }
-                proc_args %>% append(flag)
             }
+            proc_args <- c(proc_args, flag)
         }
         # Append self$chromium_args
-        proc_args %>% extend(self$chromium_args)
+        proc_args <- c(proc_args, self$chromium_args)
         
         return (proc_args)
     },
@@ -158,15 +156,17 @@ Searched for executable 'kaleido' on the following system PATH:
         # Write standard-error of subprocess to the _std_error StringIO buffer.
         # Intended to be called once in a background thread
         # """
-        # while True:
-        # Usually there should aways be a process
-        if (self$proc != None){
-            val = self$proc$stderr.readline()
-            self$std_error.write(val)
-        }else{
-            # Due to concurrency the process may be killed while this loop is still running
-            # in this case break the loop
-            return()
+        while(TRUE){
+            # Usually there should always be a process
+            if (!is.na(self$proc)){
+                Sys.sleep(1)
+                val = self$proc$read_error_lines()
+                write(val, stderr())
+            }else{
+                # Due to concurrency the process may be killed while this loop is still running
+                # in this case break the loop
+                return()
+            }
         }
     },
     ensure_kaleido = function(){
@@ -175,50 +175,58 @@ Searched for executable 'kaleido' on the following system PATH:
         # """
         # Use double-check locking to make sure we only initialize the process
         # from a single thread
-        if (self$proc == None | self$proc$poll() != None)
+        # browser()
+        if (is.null(self$proc) | !tryCatch({self$proc$is_alive()}, error = function(e){F})){
             # with self$proc_lock:
-            if (self$proc == None | self$proc$poll() != None)
+            if (is.null(self$proc) | !tryCatch({self$proc$is_alive()}, error = function(e){F})){
                 # Wait on process if crashed to prevent zombies
-                if (self$proc != None){
+                if (!is.null(self$proc)){
                     self$proc$wait()
                 }
-        # Reset _std_error buffer
-        self$std_error = io.BytesIO()
-        
-        # Launch kaleido subprocess
-        # Note: shell=True seems to be needed on Windows to handle executable path with
-        # spaces.  The subprocess.Popen docs makes it sound like this shouldn't be
-        # necessary.
-        
-        ## Probably will have to use processx in R
-        
-        proc_args = self$build_proc_args()
-        self$proc = process$new(
-            proc_args,
-            stdin = subprocess.PIPE,
-            stdout = subprocess.PIPE,
-            stderr = subprocess.PIPE,
-            shell = sys.platform == "win32"
-        )
-        
-        # Set up thread to asynchronously collect standard error stream
-        if (self$std_error_thread == None | !self$std_error_thread.is_alive()){
-            self$std_error_thread = Thread(target=self$collect_standard_error)
-            self$std_error_thread.setDaemon(True)
-            self$std_error_thread.start()
-        }
-        # Read startup message and check for errors
-        startup_response_string = self$proc$stdout$readline()$decode('utf-8')
-        if( !startup_response_string){
-            message = (
-                paste("Failed to start Kaleido subprocess. Error stream:\n\n", self$get_decoded_std_error())
-            )
-            raise (ValueError(message))
-        }else{
-            startup_response = json.loads(startup_response_string)
-            if (startup_response.get("code", 0) != 0){
-                self$proc$wait()
-                raise (ValueError(startup_response.get("message", "Failed to start Kaleido subprocess")))
+                # Reset _std_error buffer
+                # self$std_error = io.BytesIO()
+                
+                # Launch kaleido subprocess
+                # Note: shell=True seems to be needed on Windows to handle executable path with
+                # spaces.  The subprocess.Popen docs makes it sound like this shouldn't be
+                # necessary.
+                
+                ## Probably will have to use processx in R
+                # browser()
+                proc_args = self$build_proc_args()
+                self$proc = processx::process$new(
+                    command = proc_args[[1]], # %>% paste0("'", ., "'"),
+                    args = proc_args[-1] %>% unlist,
+                    # shell = .Platform$OS.type == "windows"
+                    stdin = "|",
+                    stdout = "|",
+                    stderr = "|"
+                )
+                
+                # Set up thread to asynchronously collect standard error stream
+                if (is.null(self$std_error_thread) | tryCatch({self$std_error_thread %>% is_alive() %>% `!`}, error = function(e){F})){
+                    self$std_error_thread = self$proc$get_error_connection()
+                    # self$std_error_thread.setDaemon(True)
+                    # self$std_error_thread.start()
+                }
+                # Read startup message and check for errors
+                
+                for(i in 0:30){
+                    startup_response_string = self$proc$read_output() # $get_output_connection() %>% processx_conn_read_lines() #%>% decode('utf-8')
+                    if(startup_response_string != ""){break}
+                    Sys.sleep(.1)
+                }
+                if(startup_response_string == ""){
+                    # browser()
+                    message = paste("Failed to start Kaleido subprocess. Error stream:\n\n", self$get_decoded_std_error())
+                    stop(message)
+                }else{
+                    startup_response = rjson::fromJSON(startup_response_string)
+                    if (startup_response[["code"]][[1]] != 0){
+                        self$proc$wait()
+                        stop(paste(startup_response$message,  "Failed to start Kaleido subprocess"))
+                    }
+                }
             }
         }
     },
@@ -226,24 +234,26 @@ Searched for executable 'kaleido' on the following system PATH:
         # """
         # Attempt to decode standard error bytes stream to a string
         # """
-        std_err_str = None
-        try(
+        std_err_str = NA
+        tryCatch(
             {
-                encoding = sys.stderr.encoding
-                std_err_str = self$std_error.getvalue()$decode(encoding)
+                # encoding = sys.stderr.encoding
+                # std_err_str = self$std_error.getvalue()$decode(encoding)
+                std_err_str <- self$proc$read_error()
             },
-            Exception = function(e){pass}
+            error = function(e){NA}
         )
         
-        if (std_err_str == None){
-            try({
-                encoding = locale.getpreferredencoding(False)
-                std_err_str = self$std_error$getvalue()$decode(encoding)
+        if (is.na(std_err_str)){
+            tryCatch({
+                # encoding = locale.getpreferredencoding(False)
+                # std_err_str = self$std_error$getvalue()$decode(encoding)
+                std_err_str <- self$proc$read_error()
             },
-            Exception = function(e){pass}
+            error = function(e){NA}
             )}
         
-        if (std_err_str == None){
+        if (is.na(std_err_str)){
             std_err_str = "Failed to decode Chromium's standard error stream"
         }
         return (std_err_str)
@@ -254,31 +264,34 @@ Searched for executable 'kaleido' on the following system PATH:
         # """
         # Use double-check locking to make sure we only shut down the process
         # a single time when used across threads.
-        if (self$proc != None){
+        res <- NULL
+        if (!is.null(self$proc)){
             # with self$proc_lock:
-            if (self$proc != None){
-                if (self$proc$poll() == None){
+            if (!is.null(self$proc)){
+                if(self$proc$is_alive()){ #is.na(self$proc$poll_io(1))){
                     # Process still running, close stdin to tell kaleido
                     # to shut down gracefully
-                    self$proc$stdin$close()
+                    res <- self$proc$kill()
                 }
                 # wait for process to terminate if it was running.
                 # Also prevent zombie process if process crashed
                 # on it's own
-                try(
-                    self$proc$wait(timeout=2.0),
-                    except = function(x){
+                tryCatch(
+                    self$proc$wait(timeout = 1000),
+                    error = function(x){
                         # We tried to wait! Moving on...
-                        pass
+                        NA
                     })
                 # Clear _proc property
-                self$proc == None
+                self$proc = NULL
             }
         }
-        
-        scope_name = function(){
-            raise( NotImplementedError)
-        }},
+    },
+    
+    scope_name = function(){
+        return ("plotly")
+        stop( 'NotImplementedError')
+    },
     # Flag property methods
     # is_disable_gpu = function(){
     #     # """ If True, asks chromium to disable GPU hardware acceleration with --disable-gpu flag"""
@@ -288,19 +301,20 @@ Searched for executable 'kaleido' on the following system PATH:
     disable_gpu = function(val){
         new_args = self$chromium_args[self$chromium_args != "--disable-gpu"]
         if (val){
-            new_args.append("--disable-gpu")
+            new_args <- c(new_args, "--disable-gpu")
         }
-        self$chromium_args = tuple(new_args)
+        self$chromium_args = new_args
     },
     # #@property
     chromium_args = NULL,
     #@chromium_args.setter
     set_chromium_args = function(val){
-        self$chromium_args = tuple(val)
+        self$chromium_args = list(val)
         self$shutdown_kaleido()
     },
     json_dumps = function(val){
-        return (json.dumps(val))
+        return(jsonlite::toJSON(val))
+        # return(val)
     },
     perform_transform = function(data, ...){
         # """
@@ -315,33 +329,48 @@ Searched for executable 'kaleido' on the following system PATH:
         self$ensure_kaleido()
         
         # Perform export
-        export_spec = self$json_dumps(dict(..., data=data))$encode('utf-8')
+        # browser()
+        export_spec = self$json_dumps(list(..., data=data)) #$encode('utf-8')
         
         # Write to process and read result within a lock so that can be
         # sure we're reading the response to our request
         # with self$proc_lock:
         # Reset _std_error buffer
-        self$std_error = io$BytesIO()
+        # self$std_error = io$BytesIO()
         
         # Write and flush spec
-        self$proc$stdin$write(export_spec)
-        self$proc$stdin$write("\n" %>% encode('utf-8'))
-        self$proc$stdin$flush()
-        response = self$proc$stdout$readline()
+        self$proc$write_input(export_spec)
+        self$proc$write_input("\n") # %>% `Encoding<-`('utf-8'))
+        # self$proc$stdin$flush()
+        # response = self$proc$get_output_connection() %>% processx_conn_read_lines()
         
-        response_string = response.decode('utf-8')
-        if (!response_string){
-            message = (
-                "Transform failed. Error stream:\n\n" +
+        response = self$proc$read_output_lines(1)
+        
+        # while(response == ""){
+        while(length(response) < 1){
+        # while(response %>% str_detect("\\}", negate = T)){
+            # if no response yet wait and try again
+            Sys.sleep(.1)
+            response = self$proc$read_output_lines()
+        }
+        
+        response_string = response #%>% fromJSON() %>% paste(names(.), ":", ., collapse = '\n') #.decode('utf-8')
+        
+        if (is.null(response_string)){
+            message = paste0(
+                "Transform failed. Error stream:\n\n",
                     self$get_decoded_std_error()
             )
-            raise (ValueError(message))}
-        try(
-            response = json.loads(response_string),
-            except = function(x){ 
+            stop(message)
+        }
+        
+        response <- tryCatch(
+            fromJSON(response_string),
+            error = function(x){ 
                 # JSONDecodeError
-                print(paste("Invalid JSON: ", repr(response_string)))
-                raise()
+                # browser()
+                response_string <- paste0("Invalid JSON: ", response_string) #repr(response_string)))
+                stop(response_string)
             }
         )
         return (response)
@@ -359,21 +388,24 @@ Searched for executable 'kaleido' on the following system PATH:
         response = self$perform_transform(data, ...)
         
         # Check for export error
-        code = response.pop("code", 0)
+        code = response$code[[1]]
         if (code != 0){
-            message = response.get("message", None)
-            raise (ValueError(
-                "Transform failed with error code {code}: {message}" %>%
-                    format(code=code, message=message)
-            ))
+            message = response$message
+            stop(paste0("Transform failed with error code ", code, ": ", message))
         }
         
-        img_string = response.pop("result", None)
-        return( img_string.encode())
-    })
+        img_string = response %>% chuck("result", NA)
+        return(img_string %>% encode())
+    }),
+    private = list(
+        finalize = function() {
+            self$shutdown_kaleido()
+        }
+    )
 )
+
 # PATH helpers
-which_py2 = function(cmd, mode=os.F_OK | os.X_OK, path=None){
+which_py2 = function(cmd, mode = 1, path = NA){
     # """
     # Backport (unmodified) of shutil.which command from Python 3.6
     # Remove this when Python 2 support is dropped
@@ -389,77 +421,95 @@ which_py2 = function(cmd, mode=os.F_OK | os.X_OK, path=None){
     # Check that a given file can be accessed with the correct mode.
     # Additionally check that `file` is not a directory, as on Windows
     # directories pass the os.access check.
-    def _access_check(fn, mode):
-        return os$path$exists(fn) and os.access(fn, mode) and not os$path$isdir(fn)
-    
+    access_check <- function(fn, mode){
+        return (dir.exists(fn) & file.access(fn, mode) &  !os$path$isdir(fn))
+    }
     # If we're given a path with a directory part, look it up directly rather
     # than referring to PATH directories. This includes checking relative to
     # the current directory, e.g. ./script
-    if os$path$dirname(cmd):
-        if _access_check(cmd, mode):
-        return cmd
-    return None
-    
-    if path is None:
+    if (dirname(cmd)){
+        if (access_check(cmd, mode)){
+            return(cmd)
+        }
+    }else{
+        return(NA)
+    }
+    if (is.na(path)){
         path = os$environ$get("PATH", os.defpath)
-    if not path:
-        return None
+    }
+    if  (!path){
+        return( NA)
+    }
     path = path$split(os$pathsep)
     
-    if sys.platform == "win32":
+    if (.Platform$OS.type == "windows"){
         # The current directory takes precedence on Windows.
-        if not os.curdir in path:
-        path$insert(0, os.curdir)
-    
-    # PATHEXT is necessary to check on Windows.
-    pathext = os$environ$get("PATHEXT", "").split(os$pathsep)
-    # See if the given file matches any of the expected path extensions.
-    # This will allow us to short circuit when given "python.exe".
-    # If it does match, only test that one, otherwise we have to try
-    # others.
-    if any(cmd.lower().endswith(ext.lower()) for ext in pathext):
-        files = [cmd]
-    else:
-        files = [cmd + ext for ext in pathext]
-    else:
+        if (!(os.curdir %in% path)){
+            path$insert(0, os.curdir)
+        }
+        
+        # PATHEXT is necessary to check on Windows.
+        pathext = os$environ$get("PATHEXT", "") %>% split(os$pathsep)
+        # See if the given file matches any of the expected path extensions.
+        # This will allow us to short circuit when given "python.exe".
+        # If it does match, only test that one, otherwise we have to try
+        # others.
+        if( any(lapply(pathext, FUN = function(ext){endswith(lower(cmd), lower(ext))}))){
+            files = cmd
+        }else{
+            files = paste0(cmd, pathext)
+        }
+    }else{
         # On other platforms you don't have things like PATHEXT to tell you
         # what file suffixes are executable, so just pass on cmd as-is.
-        files = [cmd]
-    
+        files = cmd
+    }
     seen = set()
-    for dir in path:
+    for (dir in path){
         normdir = os$path$normcase(dir)
-    if not normdir in seen:
-        seen.add(normdir)
-    for thefile in files:
-        name = os$path$join(dir, thefile)
-    if _access_check(name, mode):
-        return name
+        if (!( normdir %in% seen)){
+            seen.add(normdir)
+            for (thefile in files){
+                name = os$path$join(dir, thefile)
+                if (access_check(name, mode))
+                    return (name)}}}
     return (None)
-    
 }
-which = function(cmd){
-    """
-    Return the absolute path of the input executable string, based on the
-    user's current PATH variable.
 
-    This is a wrapper for shutil.which that is compatible with Python 2.
-
-    Parameters
-    ----------
-    cmd: str
-        String containing the name of an executable on the user's path$
-
-    Returns
-    -------
-    str or None
-        String containing the absolute path of the executable, or None if
-        the executable was not found.
-
-    """
-    if sys.version_info > (3, 0):
-        import shutil
-    return (shutil.which(cmd))
-    else:
+kaleido_which = function(cmd){
+    # """
+    # Return the absolute path of the input executable string, based on the
+    # user's current PATH variable.
+    # 
+    # This is a wrapper for shutil.which that is compatible with Python 2.
+    # 
+    # Parameters
+    # ----------
+    # cmd: str
+    #     String containing the name of an executable on the user's path$
+    # 
+    # Returns
+    # -------
+    # str or None
+    #     String containing the absolute path of the executable, or None if
+    #     the executable was not found.
+    # 
+    # """
+    if (sys.version_info > c(3, 0)){
+        # import (shutil)
+        return (shutil_which(cmd))
+    }else{
         return (which_py2(cmd))
+    }
 }
+
+
+a_obj <- BaseScope$new()
+# debug(a_obj$transform)
+# a_obj$transform('a')
+a_obj$transform(plot_ly() %>% plotly:::to_JSON())
+a_obj$shutdown_kaleido()
+
+# plotly:::api_create.plotly
+rm(a_obj)
+gc()
