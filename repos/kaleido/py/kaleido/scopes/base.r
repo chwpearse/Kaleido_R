@@ -53,6 +53,7 @@ BaseScope <- R6Class(
             # Internal Properties
             self$std_error_thread = NULL
             self$proc = NULL
+            ## Process locking to allow multithreading not implemented
             # self$proc_lock = Lock()
             
         },
@@ -185,8 +186,6 @@ Searched for executable 'kaleido' on the following system PATH:
                 # Set up thread to asynchronously collect standard error stream
                 if (is.null(self$std_error_thread) | tryCatch({self$std_error_thread %>% is_alive() %>% `!`}, error = function(e){F})){
                     self$std_error_thread = self$proc$get_error_connection()
-                    # self$std_error_thread.setDaemon(True)
-                    # self$std_error_thread.start()
                 }
                 # Read startup message and check for errors
                 
@@ -257,7 +256,7 @@ Searched for executable 'kaleido' on the following system PATH:
                         # We tried to wait! Moving on...
                         NA
                     })
-                # Clear _proc property
+                # NULL proc property
                 self$proc = NULL
             }
         }
