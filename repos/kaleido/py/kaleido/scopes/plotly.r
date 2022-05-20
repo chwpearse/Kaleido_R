@@ -255,9 +255,3 @@ PlotlyScope <- R6Class(
     )
 )
 
-ab_obj <- PlotlyScope$new()
-# debug(ab_obj$transform)
-# obj_transf <- ab_obj$transform(plot_ly())
-obj_transf <- ab_obj$transform(plot_ly(x = rnorm(10), y = rnorm(10)))
-
-

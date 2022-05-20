@@ -1,22 +1,8 @@
 library(rjson)
 library(R6)
-library(tidyverse)
+# library(tidyverse)
 library(processx)
 library(plotly)
-# import subprocess
-# import json
-# from threading import Lock, Thread
-# import io
-# import os
-# import sys
-# import locale
-# import platform
-
-# try:
-#     from json import JSONDecodeError
-# except ImportError:
-#     JSONDecodeError = ValueError
-
 
 BaseScope <- R6Class(
     "BaseScope",
@@ -50,7 +36,6 @@ BaseScope <- R6Class(
             return (c(cls$default_chromium_args , cls$scope_chromium_args))
         },
         initialize = function(disable_gpu = T, chromium_args = T, ...){
-            # browser()
             if (all(chromium_args == T)){
                 chromium_args = self$default_chromium_args
             }else{ 
@@ -63,10 +48,9 @@ BaseScope <- R6Class(
                 # If disable_gpu is set to False, then remove corresponding flag from extra_chromium_args
                 chromium_args = chromium_args[chromium_args != "--disable-gpu"]
             }
-            self$chromium_args = chromium_args #list(chromium_args)
+            self$chromium_args = chromium_args
             
             # Internal Properties
-            # self$std_error = NULL #io.BytesIO()
             self$std_error_thread = NULL
             self$proc = NULL
             # self$proc_lock = Lock()
@@ -129,7 +113,6 @@ Searched for executable 'kaleido' on the following system PATH:
         # 
         # :return: list of flags
         # """
-        # browser()
         proc_args = c(self$executable_path(), self$scope_name())
         for (k in self$scope_flags){
             v = self[[k]]()
@@ -173,9 +156,7 @@ Searched for executable 'kaleido' on the following system PATH:
         # """
         # Launch the kaleido subprocess if it is not already running and in a good state
         # """
-        # Use double-check locking to make sure we only initialize the process
-        # from a single thread
-        # browser()
+        # Use double-check locking to make sure we only initialize the process from a single thread
         if (is.null(self$proc) | !tryCatch({self$proc$is_alive()}, error = function(e){F})){
             # with self$proc_lock:
             if (is.null(self$proc) | !tryCatch({self$proc$is_alive()}, error = function(e){F})){
@@ -192,12 +173,10 @@ Searched for executable 'kaleido' on the following system PATH:
                 # necessary.
                 
                 ## Probably will have to use processx in R
-                # browser()
                 proc_args = self$build_proc_args()
                 self$proc = processx::process$new(
-                    command = proc_args[[1]], # %>% paste0("'", ., "'"),
-                    args = proc_args[-1] %>% unlist,
-                    # shell = .Platform$OS.type == "windows"
+                    command = proc_args[1], 
+                    args = proc_args[-1],
                     stdin = "|",
                     stdout = "|",
                     stderr = "|"
@@ -237,8 +216,6 @@ Searched for executable 'kaleido' on the following system PATH:
         std_err_str = NA
         tryCatch(
             {
-                # encoding = sys.stderr.encoding
-                # std_err_str = self$std_error.getvalue()$decode(encoding)
                 std_err_str <- self$proc$read_error()
             },
             error = function(e){NA}
@@ -246,8 +223,6 @@ Searched for executable 'kaleido' on the following system PATH:
         
         if (is.na(std_err_str)){
             tryCatch({
-                # encoding = locale.getpreferredencoding(False)
-                # std_err_str = self$std_error$getvalue()$decode(encoding)
                 std_err_str <- self$proc$read_error()
             },
             error = function(e){NA}
@@ -289,7 +264,6 @@ Searched for executable 'kaleido' on the following system PATH:
     },
     
     scope_name = function(){
-        return ("plotly")
         stop( 'NotImplementedError')
     },
     # Flag property methods
@@ -503,13 +477,3 @@ kaleido_which = function(cmd){
     }
 }
 
-
-a_obj <- BaseScope$new()
-# debug(a_obj$transform)
-# a_obj$transform('a')
-a_obj$transform(plot_ly() %>% plotly:::to_JSON())
-a_obj$shutdown_kaleido()
-
-# plotly:::api_create.plotly
-rm(a_obj)
-gc()
