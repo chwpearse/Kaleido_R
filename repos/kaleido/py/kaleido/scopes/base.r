@@ -64,15 +64,9 @@ BaseScope <- R6Class(
         
         executable_path = function(cls){
             vendored_executable_path = file.path(
-                # dirname(dirname(path.expand(getwd()))),
-                # 'executable',
-                # 'kaleido'
-                dirname(dirname(path.expand(getwd()))),
-                'Kaleido',
-                'Kaleido R',
+                getwd(),
                 'kaleido_win_x64',
-                'kaleido'
-            ) 
+                'kaleido')
             
             # Add .cmd extension on Windows. The which function below doesn't need this, but os$path$exists requires
             # the file extension
@@ -142,7 +136,7 @@ Searched for executable 'kaleido' on the following system PATH:
         # """
         while(TRUE){
             # Usually there should always be a process
-            if (!is.na(self$proc)){
+            if (!is.null(self$proc)){
                 Sys.sleep(1)
                 val = self$proc$read_error_lines()
                 write(val, stderr())
@@ -188,14 +182,14 @@ Searched for executable 'kaleido' on the following system PATH:
                     self$std_error_thread = self$proc$get_error_connection()
                 }
                 # Read startup message and check for errors
-                
-                for(i in 0:30){
-                    startup_response_string = self$proc$read_output() # $get_output_connection() %>% processx_conn_read_lines() #%>% decode('utf-8')
-                    if(startup_response_string != ""){break}
-                    Sys.sleep(.1)
-                }
-                if(startup_response_string == ""){
+                for(i in 0:6){
+                    # If there is no output because process is still starting up retry every .5 seconds for 3 seconds
+                    startup_response_string = self$proc$read_output_lines()
                     # browser()
+                    if(length(startup_response_string) > 0){break}
+                    Sys.sleep(.5)
+                }
+                if(length(startup_response_string) == 0){
                     message = paste("Failed to start Kaleido subprocess. Error stream:\n\n", self$get_decoded_std_error())
                     stop(message)
                 }else{

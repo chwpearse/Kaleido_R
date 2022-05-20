@@ -151,7 +151,7 @@ PlotlyScope <- R6Class(
             
             # Normalize format
             original_format = format
-            format = format %>% str_to_lower()
+            format = format %>% tolower()
             if (format == 'jpg'){
                 format = 'jpeg'
             }
