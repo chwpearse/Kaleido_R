@@ -29,3 +29,8 @@ repos/kaleido/py/dist/
 repos/kaleido/py/scratch/
 .idea/
 repos/CREDITS.html
+.RData
+.Rhistory
+.Rproj.user
+*.Rproj
+kaleido_win_x64
