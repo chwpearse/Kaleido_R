@@ -15,6 +15,10 @@
 #   from mock import Mock
 library(assertthat)
 library(mockr)
+library(tidyverse)
+
+source('./repos/kaleido/py/kaleido/scopes/base.r')
+source('./repos/kaleido/py/kaleido/scopes/plotly.r')
 
 # os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
 # os.environ['GALLIUM_DRIVER'] = 'softpipe'
